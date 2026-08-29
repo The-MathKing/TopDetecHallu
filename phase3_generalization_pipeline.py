@@ -82,6 +82,7 @@ def run_phase3():
                 for layer_idx in range(num_layers):
                     attn = attentions[layer_idx].float().cpu().numpy()[0]
                     avg_attn = np.mean(attn, axis=0)
+                    avg_attn = np.nan_to_num(avg_attn, nan=0.0)
                     W = np.maximum(avg_attn, avg_attn.T)
                     D = 1.0 - W
                     np.fill_diagonal(D, 0.0)
