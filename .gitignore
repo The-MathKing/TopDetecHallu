@@ -1,0 +1,9 @@
+.venv/
+paper/
+phase3_results/
+*.csv
+*.txt
+*.pdf
+*.png
+__pycache__/
+.DS_Store
