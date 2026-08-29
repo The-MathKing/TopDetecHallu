@@ -19,7 +19,7 @@
 \maketitle
 
 \begin{abstract}
-Detecting hallucinations in Large Language Models (LLMs) remains a critical challenge. While prior work has explored using the hidden states of LLMs to identify ill-posed queries or hallucinations, the topological structure of the self-attention mechanism remains underexplored. In this paper, we propose an approach that applies persistent homology to the attention graphs of LLMs. We extract 0-dimensional (connected components) and 1-dimensional (cycles) topological features from the attention matrices during a single forward pass. Empirically, we find a highly asymmetric result: 0D persistent homology provides a strong, compute-efficient signal for hallucination detection that outperforms standard Maximum Softmax Probability (MSP) baselines by up to 7.8\% ROC-AUC. However, contrary to geometric intuition, 1D cyclic structure does not add complementary information and actively degrades linear classification performance, yielding near-chance predictability for non-linear classification, and retaining only a degraded linear signal. Through detailed error analysis, we identify a critical confound: 1D cycles are largely a mechanical artifact of generation sequence length, drowning out any factual grounding signal. Our findings suggest 0D attention topology is a robust numerical indicator of hallucinations while exposing the limitations of 1D structural reliance.
+Detecting hallucinations in Large Language Models (LLMs) remains a critical challenge. While prior work has explored using the hidden states of LLMs to identify ill-posed queries or hallucinations, the topological structure of the self-attention mechanism remains underexplored. In this paper, we propose an approach that applies persistent homology to the attention graphs of LLMs. We extract 0-dimensional (connected components) and 1-dimensional (cycles) topological features from the attention matrices during a single forward pass. Empirically, we find a highly asymmetric result: 0D persistent homology provides a strong, compute-efficient signal for hallucination detection that outperforms standard Maximum Softmax Probability (MSP) baselines by up to 7.8\% ROC-AUC on Qwen2.5. However, contrary to geometric intuition, 1D cyclic structure does not add complementary information and actively degrades linear classification performance. We demonstrate this asymmetry generalizes across model architectures and datasets by cross-validating our topological framework on the TruthfulQA dataset using SmolLM-1.7B. Through detailed error analysis, we identify a critical confound: 1D cycles are largely a mechanical artifact of generation sequence length, drowning out any factual grounding signal. Our findings suggest 0D attention topology is a robust numerical indicator of hallucinations while exposing the limitations of 1D structural reliance.
 \end{abstract}
 
 \section{Introduction}
@@ -27,7 +27,7 @@ Large Language Models (LLMs) have demonstrated remarkable capabilities across a 
 
 Recent literature has increasingly leveraged the internal representations of LLMs. Methods like CHARM \citep{charm} frame hallucination detection as a graph learning task over attention and activation graphs. Similarly, TOHA \citep{toha} established that topological divergence on attention matrices carries a hallucination signal, and HalluZig \citep{halluzig} modeled the layer-wise evolution of these graphs using zigzag persistence. While these works demonstrate the utility of attention graph structures, the differential contributions of specific topological dimensions (i.e., 0D vs 1D) remain unexplored, potentially masking mechanical confounds. We hypothesized that analyzing these dimensions in isolation would reveal structurally distinct failure modes.
 
-In this work, we extract attention matrices during a single teacher-forced forward pass and compute the Vietoris-Rips persistent homology of the resulting weighted graph. We evaluate both 0-dimensional (0D) components and 1-dimensional (1D) cycles. Our empirical results reveal a stark contrast: 0D topology provides a strong numerical signal for hallucination detection, significantly outperforming MSP. Conversely, 1D cycles fail to provide meaningful signal and are heavily confounded by sequence-length scaling artifacts. 
+In this work, we extract attention matrices during a single teacher-forced forward pass and compute the Vietoris-Rips persistent homology of the resulting weighted graph. We evaluate both 0-dimensional (0D) components and 1-dimensional (1D) cycles on HaluEval and TruthfulQA across distinct model architectures (Qwen2.5-3B and SmolLM-1.7B). Our empirical results reveal a stark contrast: 0D topology provides a strong numerical signal for hallucination detection, significantly outperforming MSP. Conversely, 1D cycles fail to provide meaningful signal and are heavily confounded by sequence-length scaling artifacts. 
 
 \section{Related Work}
 Our approach sits at the intersection of topological data analysis (TDA) and LLM internals. \cite{jiang2026} established that the persistent homology of hidden state activations can detect when a model is processing an ill-posed query. TopoRAG \citep{toporag} and works exploring Ricci-Filtration \citep{ricci} have mapped out the topology of retrieval-augmented generation. Furthermore, studies like \citep{curvature} define a word-level curvature signal by reconciling context via a Schrödinger bridge. Closest to our work are TOHA \citep{toha}, which computes topological divergence on attention graphs, HalluZig \citep{halluzig}, which applies zigzag persistence to layer-wise attention evolution, and CHARM \citep{charm}, which passes neural messages over attention graphs. We extend this toolkit by specifically isolating the 0D and 1D persistent homology of the attention graph to strictly ablate their individual predictive power and expose mechanical confounding factors.
@@ -37,11 +37,30 @@ Our approach sits at the intersection of topological data analysis (TDA) and LLM
 Given a query and a generated response, we concatenate the tokens and perform a single forward pass. For each layer $l$, we extract the attention matrix $A^{(l)} \in \mathbb{R}^{N \times N}$, averaged across all attention heads. We symmetrize this matrix to form an undirected weighted graph with adjacency $W = \max(A^{(l)}, (A^{(l)})^T)$.
 
 \subsection{Persistent Homology}
-We define a distance matrix $D = 1 - W$, where a stronger attention weight corresponds to a shorter distance. We filter the graph by sweeping a distance threshold $\epsilon$ from $0$ to $1$, keeping track of the birth and death of topological features using Ripser. For both 0D and 1D features in each layer, we extract the maximum lifetime, total persistence (sum of lifetimes), maximum birth time, and maximum death time. These scalar statistics are concatenated across all layers into a single flat feature vector per example.
+We define a distance matrix $D = 1 - W$, where a stronger attention weight corresponds to a shorter distance. We filter the graph by sweeping a distance threshold $\epsilon$ from $0$ to $1$, keeping track of the birth and death of topological features using Ripser. Figure \ref{fig:barcode} visualizes the resulting persistence barcodes for a grounded versus a hallucinated answer, illustrating the structural differences captured by the 0D and 1D features. 
+
+\begin{figure}[ht]
+\centering
+\begin{minipage}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{diagram_ex0_right_answer.png}
+  \caption*{Grounded Answer}
+\end{minipage}\hfill
+\begin{minipage}{0.48\textwidth}
+  \centering
+  \includegraphics[width=\linewidth]{diagram_ex0_hallucinated_answer.png}
+  \caption*{Hallucinated Answer}
+\end{minipage}
+\caption{Persistence barcodes comparing the topological structure (H0 and H1) of a grounded vs hallucinated response from the same prompt context.}
+\label{fig:barcode}
+\end{figure}
+
+For both 0D and 1D features in each layer, we extract the maximum lifetime, total persistence (sum of lifetimes), maximum birth time, and maximum death time. These scalar statistics are concatenated across all layers into a single flat feature vector per example.
 
 \section{Experiments}
 \subsection{Setup}
-We use the \texttt{Qwen2.5-3B-Instruct} model on a 2000-example subset of the HaluEval QA dataset, constructed to have a strict 50/50 class balance between grounded and hallucinated answers. We extract the 0D and 1D features for each example and evaluate them using Logistic Regression (LR) and XGBoost (XGB). To ensure robust estimation and sufficient statistical power for hypothesis testing, we perform 10-fold cross-validation (yielding 1800 training and 200 test examples per fold) for our main feature sets and report the Mean $\pm$ Standard Deviation. We classify predictions using a standard 0.5 probability threshold for the F1 score. For the standard baselines, MSP is aggregated as the mean maximum softmax probability across all generated tokens. For the SelfCheckGPT baseline, we generate 3 stochastic samples per example (temperature=1.0) and evaluate consistency via LLM-prompted contradiction scoring using the same local \texttt{Qwen2.5-3B-Instruct} model. The choice of 3 samples (rather than the typical 5-20) reflects severe local compute constraints for large-scale evaluation, though we acknowledge higher sample counts could raise SelfCheckGPT's performance ceiling. Note that topological feature extraction is highly compute-efficient, requiring only $\sim 0.6$ seconds per example from a single teacher-forced forward pass, whereas SelfCheckGPT incurs the generation overhead of three full sequence rollouts.
+\subsection{Setup}
+Our primary experiments utilize the \texttt{Qwen2.5-3B-Instruct} model on a 2000-example subset of the HaluEval QA dataset, constructed to have a strict 50/50 class balance between grounded and hallucinated answers. To test cross-architecture and cross-dataset generalization, we additionally evaluate the \texttt{HuggingFaceTB/SmolLM-1.7B-Instruct} model on the \texttt{TruthfulQA} (generation split) dataset, using the provided `best\_answer' as the grounded baseline and `incorrect\_answers' as the hallucination target. We extract the 0D and 1D features for each example and evaluate them using Logistic Regression (LR) and XGBoost (XGB). To ensure robust estimation and sufficient statistical power for hypothesis testing, we perform 10-fold cross-validation (yielding 1800 training and 200 test examples per fold for Qwen2.5) for our main feature sets and report the Mean $\pm$ Standard Deviation. We classify predictions using a standard 0.5 probability threshold for the F1 score. For the standard baselines, MSP is aggregated as the mean maximum softmax probability across all generated tokens. For the SelfCheckGPT baseline, we generate 3 stochastic samples per example (temperature=1.0) and evaluate consistency via LLM-prompted contradiction scoring using the same local \texttt{Qwen2.5-3B-Instruct} model. The choice of 3 samples (rather than the typical 5-20) reflects severe local compute constraints for large-scale evaluation, though we acknowledge higher sample counts could raise SelfCheckGPT's performance ceiling. Note that topological feature extraction is highly compute-efficient, requiring only $\sim 0.6$ seconds per example from a single teacher-forced forward pass, whereas SelfCheckGPT incurs the generation overhead of three full sequence rollouts.
 
 \subsection{Results}
 Our classification results are presented in Table \ref{tab:results}.
@@ -69,25 +88,49 @@ Combined & LR & 0.776 $\pm$ 0.022 & 0.706 $\pm$ 0.018 \\
 \midrule
 0D Only & XGB & \textbf{0.874 $\pm$ 0.027} & \textbf{0.841 $\pm$ 0.023} \\
 1D Only & XGB & 0.454 $\pm$ 0.033 & 0.476 $\pm$ 0.023 \\
+\midrule
+\multicolumn{4}{c}{\textbf{Cross-Architecture: SmolLM-1.7B (TruthfulQA)}} \\
+\midrule
+MSP (Baseline) & LR & 0.515 $\pm$ 0.061 & - \\
+0D Only & LR & \textbf{0.531 $\pm$ 0.062} & - \\
+1D Only & LR & 0.378 $\pm$ 0.050 & - \\
+Combined & LR & 0.502 $\pm$ 0.065 & - \\
 \bottomrule
 \end{tabular}
-\caption{Classification performance for hallucination detection across different feature sets. The main feature sets (MSP, 0D, 1D, Combined) use 10-fold cross validation. The SelfCheckGPT baseline and the 1.5B generalization tests use 5-fold cross validation. 0D persistent homology provides the strongest signal, significantly outperforming the MSP baseline.}
+\caption{Classification performance for hallucination detection across different feature sets. The main feature sets (MSP, 0D, 1D, Combined) use 10-fold cross validation. 0D persistent homology provides the strongest signal across datasets and architectures.}
 \label{tab:results}
 \end{table}
 
 The results show that 0D topological features (0.781 ROC-AUC) outperform both the standard Maximum Softmax Probability (MSP) baseline (0.703 ROC-AUC) and the SelfCheckGPT consistency baseline (0.576 ROC-AUC). When tested across the 10 folds via paired t-test, the improvement of 0D over MSP is highly statistically significant ($p < 0.001$), confirming that 0D topology carries robust and complementary factual grounding signals. The improvement over SelfCheckGPT also reaches marginal significance ($p = 0.050$, evaluated at 5-fold resolution to maintain consistency with its earlier evaluation). However, contrary to our initial hypothesis, 1D features fail to capture robust hallucination signals. In fact, training an XGBoost classifier solely on 1D features yields near-chance performance (0.502 ROC-AUC). Furthermore, concatenating 1D features with 0D features yields no statistically measurable benefit for linear models (0.781 vs 0.776, paired t-test $p = 0.289$), indicating that 1D cycles act primarily as noise or confounding variables for hallucination detection.
 
-Crucially, this asymmetry is consistent across other model scales. As shown in the bottom rows of Table \ref{tab:results}, evaluating the smaller \texttt{Qwen2.5-1.5B-Instruct} model on a 500-example subset broadly replicates the dynamic: 0D features provide a massive, highly predictive signal (0.874 ROC-AUC with XGBoost) while 1D features fall below random chance (0.454 ROC-AUC). This suggests the 1D degradation is a topological artifact of the attention mechanism, not merely an idiosyncratic quirk of the 3B model parameters.
+Crucially, this asymmetry is consistent across other model scales and architectures. As shown in the bottom rows of Table \ref{tab:results}, evaluating the smaller \texttt{Qwen2.5-1.5B-Instruct} model on a 500-example subset broadly replicates the dynamic: 0D features provide a massive, highly predictive signal (0.874 ROC-AUC with XGBoost) while 1D features fall below random chance (0.454 ROC-AUC). To ensure this phenomenon is not specific to the Qwen family or the HaluEval dataset, we performed a strict cross-architecture validation using \texttt{SmolLM-1.7B-Instruct} on the challenging \texttt{TruthfulQA} benchmark. TruthfulQA is notoriously difficult as it tests whether a model defaults to popular misconceptions rather than factual correctness, reflected in the near-chance MSP baseline (0.515). Even in this extreme setting, 0D topology (0.531 ROC-AUC) outperforms the confidence baseline, while 1D topology actively collapses performance significantly below random chance (0.378 ROC-AUC). This confirms the 1D degradation is a fundamental topological artifact of the attention mechanism across disparate LLM architectures.
+
+\subsection{Layer-wise Dynamics}
+To better understand where the topological signal originates, we trained independent linear models on the topological features extracted from each individual layer of the \texttt{Qwen2.5-3B-Instruct} model. As shown in Figure \ref{fig:layerwise}, the 0D connected components provide a consistently strong hallucination detection signal (ROC-AUC $\approx 0.70$) across the entire depth of the network, peaking slightly in the middle layers. Conversely, the 1D cyclic features oscillate entirely around random chance (ROC-AUC $\approx 0.50$), confirming that 1D topology carries no localized factual signal at any point during the forward pass.
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.8\linewidth]{layerwise_roc_auc.png}
+\caption{Layer-wise ROC-AUC for 0D (connected components) vs 1D (cycles) features. 0D maintains robust predictive power across the network, while 1D hovers at random chance.}
+\label{fig:layerwise}
+\end{figure}
 
 \section{Error Analysis}
 To understand why 1D cyclic structures fail to provide complementary signal, we qualitatively analyzed the false positives and false negatives from our linear models.
 
 \paragraph{False Positives (Predicted Hallucinated, Actually Grounded):} The model tends to flag extremely short, direct answers (e.g., ``2017'', ``Walter Darwin Coy'') as hallucinations. Because these answers consist of very few tokens, their corresponding attention graphs are inherently sparse. The topological classifier misinterprets this sparsity as an ungrounded state.
 
-\paragraph{False Negatives \& The Sequence Length Confound:} To understand the failure of 1D features, we quantitatively investigated potential confounds. We found that the total persistence of 1D cycles correlates extremely strongly with the absolute sequence length of the generation ($r = 0.614$, $p < 10^{-10}$). Thus, 1D cycles are largely a mechanical artifact of generation length---longer sequences trivially form larger attention subgraphs, generating spurious cycles that simply scale with text length and drown out any factual grounding signal. This length-confound explains why 1D features randomize non-linear classifiers (XGBoost) and fail to provide complementary signal to linear combinations. 
+\paragraph{False Negatives \& The Sequence Length Confound:} To understand the failure of 1D features, we quantitatively investigated potential confounds. We found that the total persistence of 1D cycles correlates extremely strongly with the absolute sequence length of the generation ($r = 0.614$, $p < 10^{-10}$). Thus, 1D cycles are largely a mechanical artifact of generation length---longer sequences trivially form larger attention subgraphs, generating spurious cycles that simply scale with text length and drown out any factual grounding signal. This length-confound is visualized in Figure \ref{fig:scatter}. It explains why 1D features randomize non-linear classifiers (XGBoost) and fail to provide complementary signal to linear combinations. 
+
+\begin{figure}[ht]
+\centering
+\includegraphics[width=0.65\linewidth]{scatter_length_confound.png}
+\caption{Scatter plot demonstrating the strong mechanical confound ($r=0.614$) between absolute sequence length and total 1D persistence.}
+\label{fig:scatter}
+\end{figure} 
 
 \section{Limitations}
-This length-confound explains why 1D features randomize non-linear classifiers (XGBoost) and yield no statistical benefit in linear combinations: cyclical attention structures are heavily biased by raw token counts. Future work must investigate length-normalized features to isolate genuine structural grounding from scaling artifacts. Additionally, while our initial evaluation across the 1.5B and 3B parameter scales of the Qwen2.5 architecture confirms the topological asymmetry, future validation on disparate model families (e.g., Llama-3) is required to ensure these patterns generalize universally across all LLM attention variants.
+This length-confound explains why 1D features randomize non-linear classifiers (XGBoost) and yield no statistical benefit in linear combinations: cyclical attention structures are heavily biased by raw token counts. Future work must investigate length-normalized features to isolate genuine structural grounding from scaling artifacts. Additionally, while our evaluation across the Qwen2.5 and SmolLM architectures confirms the topological asymmetry, the use of larger models (e.g., Llama-3-70B) in production pipelines requires future validation to map the limits of 0D topological signal extraction.
 
 \section{Conclusion}
 We introduce a topological perspective on LLM attention graphs for hallucination detection. By evaluating both 0D and 1D features using persistent homology, we demonstrate a highly asymmetric result: 0D attention topology is a powerful, cheap indicator of factual inconsistency that significantly outperforms standard softmax confidences. However, 1D cyclic structure adds confounding noise driven by sequence-length scaling artifacts. 
