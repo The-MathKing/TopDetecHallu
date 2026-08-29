@@ -185,6 +185,11 @@ def run_evaluation(df):
     print(f"Combined (LR):     {np.mean(auc_comb_lr):.3f} +/- {np.std(auc_comb_lr):.3f}")
     print(f"Combined (XGB):    {np.mean(auc_comb_xgb):.3f} +/- {np.std(auc_comb_xgb):.3f}")
 
+    from scipy import stats
+    _, p_val = stats.ttest_rel(auc_0d_lr, auc_msp)
+    print(f"Paired t-test (0D LR vs MSP LR): p-value = {p_val:.4f}")
+
+
 if __name__ == "__main__":
     df = run_extraction()
     run_evaluation(df)
